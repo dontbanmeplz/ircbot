@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Search - IRC Book Downloader{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <div class="search-section">
+        <h2>Search for Books</h2>
+        <form id="searchForm" class="search-form">
+            <div class="search-input-group">
+                <input type="text" 
+                       id="searchQuery" 
+                       placeholder="Enter book name (e.g., 'enders game')" 
+                       required
+                       class="search-input">
+                <button type="submit" id="searchBtn" class="btn btn-primary">Search</button>
+            </div>
+        </form>
+        
+        <div id="statusSection" class="status-section hidden">
+            <div class="status-message" id="statusMessage"></div>
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+        </div>
+        
+        <div id="queueInfo" class="queue-info hidden">
+            <span id="queueText"></span>
+        </div>
+    </div>
+    
+    <div id="resultsSection" class="results-section hidden">
+        <div class="results-header">
+            <h3 id="resultsTitle">Search Results</h3>
+            <button id="downloadSelectedBtn" class="btn btn-success" disabled>Download Selected (0)</button>
+        </div>
+        
+        <div id="resultsContainer" class="results-container">
+            <!-- Results will be populated by JavaScript -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/socket.js') }}"></script>
+<script src="{{ url_for('static', filename='js/search.js') }}"></script>
+{% endblock %}
