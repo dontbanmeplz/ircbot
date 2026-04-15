@@ -1,0 +1,29 @@
+[Unit]
+Description=IRC Book Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ircbot
+Group=ircbot
+WorkingDirectory=/opt/ircbot/backend
+EnvironmentFile=/opt/ircbot/.env
+ExecStart=/opt/ircbot/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ircbot/data /opt/ircbot/backend/storage
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ircbot
+
+[Install]
+WantedBy=multi-user.target
