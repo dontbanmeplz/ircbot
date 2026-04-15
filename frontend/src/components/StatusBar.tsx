@@ -16,11 +16,17 @@ export default function StatusBar() {
     };
 
     poll();
-    const interval = setInterval(poll, 5000);
+    const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
   }, []);
 
   if (!status) return null;
+
+  const fmtWait = (seconds: number | null) => {
+    if (seconds === null) return "";
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
+  };
 
   return (
     <div className="status-bar">
@@ -29,14 +35,20 @@ export default function StatusBar() {
       />
       <span className="status-text">
         {status.connected && status.joined
-          ? `Connected to ${status.channel} as ${status.nick}`
+          ? `Connected as ${status.nick}`
           : status.connected
             ? "Connecting to channel..."
             : "Disconnected from IRC"}
       </span>
-      {status.pending_search && <span className="status-badge">Searching...</span>}
+      {status.pending_search && (
+        <span className="status-badge">
+          Searching... {fmtWait(status.pending_search_seconds)}
+        </span>
+      )}
       {status.pending_download && (
-        <span className="status-badge">Downloading...</span>
+        <span className="status-badge">
+          Downloading... {fmtWait(status.pending_download_seconds)}
+        </span>
       )}
     </div>
   );

@@ -194,7 +194,9 @@ export interface BotStatus {
   channel: string;
   nick: string;
   pending_search: boolean;
+  pending_search_seconds: number | null;
   pending_download: boolean;
+  pending_download_seconds: number | null;
 }
 
 export async function getBotStatus(): Promise<BotStatus> {

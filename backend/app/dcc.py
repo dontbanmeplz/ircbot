@@ -9,18 +9,28 @@ irchighway DCC quirks:
 """
 
 import io
+import logging
 import re
 import socket
 import struct
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+logger = logging.getLogger("ircbot.dcc")
+
 # Regex for DCC SEND: handles both quoted and unquoted filenames
 DCC_SEND_RE = re.compile(
     r'DCC SEND "?(.+?)"?\s+(\d+)\s+(\d+)\s+(\d+)'
 )
+
+# Timeouts
+DCC_CONNECT_TIMEOUT = 30      # seconds to establish TCP connection
+DCC_READ_TIMEOUT = 60         # seconds to wait for each chunk of data
+DCC_TOTAL_TIMEOUT = 300       # seconds max for an entire transfer (5 min)
+DCC_SEARCH_TOTAL_TIMEOUT = 60 # seconds max for search results (smaller files)
 
 
 @dataclass
@@ -62,11 +72,26 @@ def parse_dcc_send(message: str) -> Optional[DCCSendOffer]:
     )
 
 
+class DCCTransferError(Exception):
+    """Raised when a DCC transfer fails."""
+    pass
+
+
+class DCCTimeoutError(DCCTransferError):
+    """Raised when a DCC transfer exceeds the total timeout."""
+    pass
+
+
 def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=None) -> Path:
     """Download a file via DCC SEND.
     
     Opens a raw TCP connection to the sender and reads exactly `filesize` bytes.
     The DCC protocol on irchighway does NOT send EOF, so we must track bytes.
+    
+    Includes:
+      - Connect timeout (30s)
+      - Per-read timeout (60s) 
+      - Overall transfer timeout (300s for books, 60s for search results)
     
     Args:
         offer: Parsed DCC SEND offer
@@ -75,6 +100,10 @@ def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=Non
     
     Returns:
         Path to the saved file
+    
+    Raises:
+        DCCTransferError: on connection or transfer failure
+        DCCTimeoutError: if total timeout exceeded
     """
     filepath = save_path / offer.filename
     
@@ -85,23 +114,55 @@ def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=Non
         filepath = original.with_stem(f"{original.stem}_{counter}")
         counter += 1
 
+    total_timeout = DCC_SEARCH_TOTAL_TIMEOUT if offer.is_search_result else DCC_TOTAL_TIMEOUT
+    start_time = time.monotonic()
     received = 0
     chunk_size = 8192
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(60)  # 60 second timeout per read
+    sock.settimeout(DCC_CONNECT_TIMEOUT)
 
     try:
-        sock.connect((offer.ip, offer.port))
+        logger.info(f"DCC connecting to {offer.ip}:{offer.port} for {offer.filename}")
+        try:
+            sock.connect((offer.ip, offer.port))
+        except socket.timeout:
+            raise DCCTransferError(f"Connection timed out to {offer.ip}:{offer.port}")
+        except ConnectionRefusedError:
+            raise DCCTransferError(f"Connection refused by {offer.ip}:{offer.port}")
+        except OSError as e:
+            raise DCCTransferError(f"Connection failed to {offer.ip}:{offer.port}: {e}")
+
+        # Switch to read timeout after connecting
+        sock.settimeout(DCC_READ_TIMEOUT)
 
         with open(filepath, "wb") as f:
             while received < offer.filesize:
+                # Check overall timeout
+                elapsed = time.monotonic() - start_time
+                if elapsed > total_timeout:
+                    raise DCCTimeoutError(
+                        f"Transfer timed out after {elapsed:.0f}s "
+                        f"({received}/{offer.filesize} bytes received)"
+                    )
+
                 remaining = offer.filesize - received
                 to_read = min(chunk_size, remaining)
                 
-                data = sock.recv(to_read)
+                try:
+                    data = sock.recv(to_read)
+                except socket.timeout:
+                    raise DCCTransferError(
+                        f"Read timed out after {DCC_READ_TIMEOUT}s "
+                        f"({received}/{offer.filesize} bytes received)"
+                    )
+
                 if not data:
                     # Connection closed prematurely
+                    logger.warning(
+                        f"DCC connection closed early: {received}/{offer.filesize} bytes "
+                        f"for {offer.filename}"
+                    )
                     break
                 
                 f.write(data)
@@ -109,12 +170,28 @@ def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=Non
 
                 if progress_callback:
                     progress_callback(received, offer.filesize)
+
+    except (DCCTransferError, DCCTimeoutError):
+        # Clean up partial file on timeout/error
+        if filepath.exists() and received == 0:
+            try:
+                filepath.unlink()
+            except Exception:
+                pass
+        raise
     finally:
         sock.close()
 
+    elapsed = time.monotonic() - start_time
     if received < offer.filesize:
-        # Partial download - keep it but log
-        pass
+        logger.warning(
+            f"DCC partial download: {received}/{offer.filesize} bytes "
+            f"in {elapsed:.1f}s for {offer.filename}"
+        )
+    else:
+        logger.info(
+            f"DCC complete: {received} bytes in {elapsed:.1f}s for {offer.filename}"
+        )
 
     return filepath
 
