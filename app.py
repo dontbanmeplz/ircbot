@@ -3,6 +3,10 @@ IRC Book Downloader Web Interface
 Flask application with WebSocket support
 """
 
+# eventlet monkey-patching MUST happen before any other imports
+import eventlet
+eventlet.monkey_patch()
+
 import os
 from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify, session
 from flask_socketio import SocketIO, emit, join_room
@@ -367,8 +371,12 @@ def init_app():
     print("Directories created")
 
 
+# Initialize on import so gunicorn can use the app directly
+init_app()
+
+
 # ============================================================================
-# MAIN
+# MAIN (for local development)
 # ============================================================================
 
 if __name__ == '__main__':
@@ -382,10 +390,7 @@ if __name__ == '__main__':
     print(f"Password: {config.APP_PASSWORD}")
     print("=" * 60)
     
-    # Initialize
-    init_app()
-    
-    # Run server
+    # Run development server
     socketio.run(
         app,
         host=config.HOST,

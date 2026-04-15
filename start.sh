@@ -32,14 +32,20 @@ uv sync
 echo "✓ Dependencies installed"
 echo ""
 
-# Start the application
-echo "Starting web interface..."
+# Start the application with gunicorn
+echo "Starting web interface with gunicorn..."
 echo ""
 echo "=========================================="
-echo " Server starting..."
+echo " Server starting on 0.0.0.0:${PORT:-8003}"
 echo " Default login password: admin123"
 echo " (Change this in config.py!)"
 echo "=========================================="
 echo ""
 
-uv run python app.py
+uv run gunicorn \
+    --worker-class eventlet \
+    -w 1 \
+    --bind "0.0.0.0:${PORT:-8003}" \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
