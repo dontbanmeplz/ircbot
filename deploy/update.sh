@@ -16,7 +16,7 @@ sudo -u ircbot git pull
 # Update Python deps
 echo "[2/4] Updating Python deps..."
 "$APP_DIR/.venv/bin/pip" install -q \
-    fastapi "uvicorn[standard]" sqlalchemy aiosqlite irc pyjwt python-multipart pydantic-settings
+    fastapi "uvicorn[standard]" sqlalchemy aiosqlite irc pyjwt python-multipart pydantic-settings PySocks
 
 # Rebuild frontend
 echo "[3/4] Rebuilding frontend..."

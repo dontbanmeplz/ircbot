@@ -35,7 +35,7 @@ fi
 echo "[4/7] Setting up Python venv..."
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q \
-    fastapi "uvicorn[standard]" sqlalchemy aiosqlite irc pyjwt python-multipart pydantic-settings
+    fastapi "uvicorn[standard]" sqlalchemy aiosqlite irc pyjwt python-multipart pydantic-settings PySocks
 
 # 5. Build frontend
 echo "[5/7] Building frontend..."
