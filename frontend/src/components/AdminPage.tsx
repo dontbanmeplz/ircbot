@@ -369,16 +369,16 @@ export default function AdminPage() {
               <tbody>
                 {downloads.map((d) => (
                   <tr key={d.id}>
-                    <td>
+                    <td data-label="Time">
                       {new Date(d.downloaded_at).toLocaleString()}
                     </td>
-                    <td>
+                    <td data-label="Book">
                       <strong>{d.book_title}</strong>
                       {d.book_author && (
                         <span className="muted"> by {d.book_author}</span>
                       )}
                     </td>
-                    <td>
+                    <td data-label="IP">
                       <span
                         className="ip-link"
                         onClick={() => handleIpClick(d.ip_address)}
@@ -386,7 +386,7 @@ export default function AdminPage() {
                         {d.ip_address}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Who">
                       {d.ip_tag ? (
                         <span className="tag-badge">{d.ip_tag.tag_name}</span>
                       ) : (
@@ -426,7 +426,7 @@ export default function AdminPage() {
                 <tbody>
                   {stats.map((s) => (
                     <tr key={s.ip_address}>
-                      <td>
+                      <td data-label="IP">
                         <span
                           className="ip-link"
                           onClick={() => {
@@ -436,13 +436,13 @@ export default function AdminPage() {
                           {s.ip_address}
                         </span>
                       </td>
-                      <td>{s.download_count}</td>
-                      <td>
+                      <td data-label="Downloads">{s.download_count}</td>
+                      <td data-label="Last Active">
                         {s.last_download
                           ? new Date(s.last_download).toLocaleString()
                           : "Never"}
                       </td>
-                      <td>
+                      <td data-label="Tag">
                         {s.ip_tag ? (
                           <span className="tag-badge">
                             {s.ip_tag.tag_name}

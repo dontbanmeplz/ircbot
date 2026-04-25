@@ -16,10 +16,17 @@ class Settings(BaseSettings):
 
     # IRC
     irc_server: str = "irc.irchighway.net"
-    irc_port: int = 6697
-    irc_use_ssl: bool = True
+    irc_port: int = 6667
+    irc_use_ssl: bool = False
     irc_nick: str = ""  # Empty = auto-generate a human-looking nick
     irc_channel: str = "#ebooks"
+
+    # Proxy
+    proxy_enabled: bool = False
+    proxy_list_url: str = "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.json"
+    proxy_refresh_minutes: int = 30
+    proxy_manual: str = ""  # Comma-separated manual proxies: ip:port,ip:port
+    proxy_connect_timeout: int = 10  # seconds to test if a proxy is alive
 
     # Storage
     storage_path: Path = Path(__file__).parent.parent / "storage"

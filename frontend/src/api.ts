@@ -193,6 +193,8 @@ export interface BotStatus {
   server: string;
   channel: string;
   nick: string;
+  proxy: string | null;
+  proxy_enabled: boolean;
   pending_search: boolean;
   pending_search_seconds: number | null;
   pending_download: boolean;

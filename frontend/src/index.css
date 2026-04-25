@@ -269,6 +269,12 @@ button:disabled {
   font-weight: 500;
 }
 
+.proxy-badge {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--orange);
+  font-family: var(--mono);
+}
+
 /* --- Search Page --- */
 .search-form {
   display: flex;
@@ -768,49 +774,382 @@ button:disabled {
 }
 
 /* --- Responsive --- */
-@media (max-width: 640px) {
-  .app-header {
-    flex-wrap: wrap;
-    height: auto;
-    padding: 12px 16px;
-    gap: 8px;
+
+/* Prevent iOS zoom on input focus */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch targets */
+@media (hover: none) and (pointer: coarse) {
+  button,
+  .btn-download,
+  .format-toggle,
+  .tab-bar button,
+  .app-nav button,
+  .app-bottom-nav button {
+    min-height: 44px;
   }
 
-  .app-nav {
-    order: 3;
+  .btn-small {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* --- Bottom Navigation (mobile only) --- */
+.app-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .app-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    z-index: 200;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .app-bottom-nav button {
+    flex: 1;
+    background: transparent;
+    color: var(--text-dim);
+    border: none;
+    padding: 10px 0;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+  }
+
+  .app-bottom-nav button.active {
+    color: var(--accent);
+  }
+
+  .app-bottom-nav .nav-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  /* --- Header: compact on mobile --- */
+  .app-header {
+    padding: 0 16px;
+    height: 44px;
+    gap: 10px;
+  }
+
+  .app-header .app-nav {
+    display: none;
+  }
+
+  .app-title {
+    font-size: 15px;
+  }
+
+  .btn-logout {
+    display: none;
+  }
+
+  /* Status bar: compact */
+  .status-bar {
+    font-size: 11px;
+    gap: 5px;
+    margin-left: auto;
+  }
+
+  .status-text {
+    display: none;
+  }
+
+  .status-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  .proxy-badge {
+    display: none;
+  }
+
+  /* --- Main content: room for bottom nav --- */
+  .app-main {
+    padding: 16px;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 0));
+  }
+
+  .app-main h2 {
+    font-size: 18px;
+    margin-bottom: 14px;
+  }
+
+  /* --- Search Page --- */
+  .search-form {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .search-form button {
     width: 100%;
   }
 
-  .app-main {
-    padding: 20px 16px;
-  }
-
-  .search-form {
+  .result-item {
     flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
   }
 
+  .result-name {
+    white-space: normal;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .result-meta {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .result-action {
+    display: flex;
+  }
+
+  .result-action button {
+    width: 100%;
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .download-msg {
+    font-size: 13px;
+    text-align: center;
+    display: block;
+  }
+
+  /* --- Library Page --- */
   .library-filters {
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .library-filters button {
+    width: 100%;
   }
 
   .books-grid {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
 
+  .book-card {
+    padding: 14px;
+  }
+
+  .book-title {
+    -webkit-line-clamp: 3;
+    font-size: 15px;
+  }
+
+  .btn-download {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+    text-align: center;
+  }
+
+  /* --- Admin Page --- */
+  .tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    gap: 2px;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-bar button {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .filter-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-row input {
+    max-width: none;
+  }
+
+  /* Tables -> Cards on mobile */
+  .data-table,
+  .data-table thead,
+  .data-table tbody,
+  .data-table tr,
+  .data-table th,
+  .data-table td {
+    display: block;
+  }
+
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table tr {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  .data-table td {
+    padding: 3px 0;
+    border: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+    min-width: 70px;
+  }
+
+  .data-table td:empty {
+    display: none;
+  }
+
+  .data-table tr:hover td {
+    background: none;
+  }
+
+  /* Tag form */
   .tag-form {
     flex-direction: column;
   }
 
   .tag-form input {
+    width: 100% !important;
+  }
+
+  .tag-form button {
     width: 100%;
   }
 
-  .data-table {
-    font-size: 12px;
+  /* Settings tab */
+  .settings-section {
+    padding: 14px;
   }
 
-  .data-table th,
-  .data-table td {
-    padding: 6px 8px;
+  .format-toggles {
+    gap: 8px;
+  }
+
+  .format-toggle {
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+
+  .rule-item {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .rule-label {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+
+  .rule-item .btn-small {
+    margin-left: auto;
+  }
+
+  .add-rule-fields {
+    flex-direction: column;
+  }
+
+  .add-rule-fields select,
+  .add-rule-fields input[type="text"] {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .weight-input {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .weight-input input[type="number"] {
+    flex: 1;
+  }
+
+  .add-rule-fields .btn-secondary {
+    width: 100%;
+  }
+
+  .settings-actions {
+    flex-direction: column;
+  }
+
+  .settings-actions button {
+    width: 100%;
+  }
+
+  /* IP stats section */
+  .ip-stats {
+    margin-bottom: 24px;
+  }
+
+  .ip-stats h3,
+  .tag-form-section h3 {
+    font-size: 15px;
+  }
+
+  /* Login page */
+  .login-card {
+    padding: 32px 24px;
+    border-radius: 0;
+    border: none;
+    max-width: 100vw;
+    width: 100%;
   }
 }

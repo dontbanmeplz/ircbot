@@ -59,6 +59,37 @@ function App() {
         {page === "library" && <LibraryPage />}
         {page === "admin" && admin && <AdminPage />}
       </main>
+
+      {/* Bottom nav for mobile */}
+      <nav className="app-bottom-nav">
+        <button
+          className={page === "search" ? "active" : ""}
+          onClick={() => setPage("search")}
+        >
+          <span className="nav-icon">/</span>
+          Search
+        </button>
+        <button
+          className={page === "library" ? "active" : ""}
+          onClick={() => setPage("library")}
+        >
+          <span className="nav-icon">#</span>
+          Library
+        </button>
+        {admin && (
+          <button
+            className={page === "admin" ? "active" : ""}
+            onClick={() => setPage("admin")}
+          >
+            <span className="nav-icon">*</span>
+            Admin
+          </button>
+        )}
+        <button onClick={logout}>
+          <span className="nav-icon">x</span>
+          Logout
+        </button>
+      </nav>
     </div>
   );
 }

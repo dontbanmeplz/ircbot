@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { getBotStatus } from "../api";
+import { getBotStatus, isAdmin } from "../api";
 import type { BotStatus } from "../api";
 
 export default function StatusBar() {
   const [status, setStatus] = useState<BotStatus | null>(null);
+  const admin = isAdmin();
 
   useEffect(() => {
     const poll = async () => {
@@ -40,6 +41,11 @@ export default function StatusBar() {
             ? "Connecting to channel..."
             : "Disconnected from IRC"}
       </span>
+      {admin && status.proxy_enabled && status.proxy && (
+        <span className="status-badge proxy-badge">
+          via {status.proxy}
+        </span>
+      )}
       {status.pending_search && (
         <span className="status-badge">
           Searching... {fmtWait(status.pending_search_seconds)}

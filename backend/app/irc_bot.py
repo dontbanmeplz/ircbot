@@ -13,18 +13,13 @@ Key reliability features:
     clear the pending flag.
 """
 
-import json
 import logging
-import os
 import random
-import re
-import ssl
-import string
-import struct
 import socket
+import string
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from queue import Queue, Empty
@@ -35,6 +30,7 @@ import irc.connection
 
 from app.config import settings
 from app.nickgen import generate_nick, random_version_string
+from app.proxy import proxy_manager
 from app.dcc import (
     DCCSendOffer,
     DCCTransferError,
@@ -137,12 +133,15 @@ class IRCBookBot:
         if self._pending_download_since:
             download_waiting = round(now - self._pending_download_since)
 
+        proxy = proxy_manager.current_proxy
         return {
             "connected": self._connected,
             "joined": self._joined,
             "server": self.server,
             "channel": self.channel,
             "nick": self.nick,
+            "proxy": str(proxy) if proxy else None,
+            "proxy_enabled": settings.proxy_enabled,
             "pending_search": self._pending_search is not None,
             "pending_search_seconds": search_waiting,
             "pending_download": self._pending_download is not None,
@@ -238,13 +237,25 @@ class IRCBookBot:
         self._reactor.add_global_handler("disconnect", self._on_disconnect)
         self._reactor.add_global_handler("nicknameinuse", self._on_nick_in_use)
 
-        # Connect with SSL if configured
-        connect_factory = None
-        if self.use_ssl:
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            connect_factory = irc.connection.Factory(wrapper=ssl_ctx.wrap_socket)
+        if settings.proxy_enabled:
+            # Proxy mode: find a working proxy, create a proxied socket
+            proxy = proxy_manager.get_working_proxy()
+            if not proxy:
+                raise RuntimeError("No working proxy available")
+
+            # Custom connect factory: returns the pre-connected proxied socket
+            connected_socket = proxy_manager.create_irc_connection(
+                self.server, self.port
+            )
+
+            def _proxy_factory(server_address):
+                return connected_socket
+
+            connect_factory = _proxy_factory
+            logger.info(f"Using proxy {proxy} for IRC connection")
+        else:
+            # Direct mode - plain TCP
+            connect_factory = None
 
         server = self._reactor.server()
         self._connection = server
@@ -255,7 +266,8 @@ class IRCBookBot:
             connect_factory=connect_factory,
         )
         self._connected = True
-        logger.info(f"Connected to {self.server}:{self.port}")
+        proxy_str = f" via proxy {proxy_manager.current_proxy}" if settings.proxy_enabled else ""
+        logger.info(f"Connected to {self.server}:{self.port}{proxy_str}")
 
         # Event loop - process IRC events and check our job queues
         while self._running and self._connected:
@@ -362,6 +374,14 @@ class IRCBookBot:
         logger.info(f"NOTICE from {source}: {msg}")
 
         lower = msg.lower()
+
+        # Check for ban notice - mark proxy as failed so we don't reuse it
+        if "banned" in lower or "k-lined" in lower or "denied" in lower:
+            logger.warning(f"Proxy IP is banned on this IRC node: {msg}")
+            if settings.proxy_enabled and proxy_manager.current_proxy:
+                proxy_manager._mark_failed(proxy_manager.current_proxy)
+                logger.info(f"Marked proxy {proxy_manager.current_proxy} as banned")
+            return
 
         # Check for search-related failure notices
         if self._pending_search:
@@ -479,9 +499,13 @@ class IRCBookBot:
         self._pending_search = None
         self._pending_search_since = None
 
+        # Capture current proxy for the DCC thread
+        current_proxy = proxy_manager.current_proxy if settings.proxy_enabled else None
+
         def _do_receive():
+            proxy_arg = (current_proxy.ip, current_proxy.port) if current_proxy else None
             try:
-                filepath = receive_dcc_file(offer, self.storage_path)
+                filepath = receive_dcc_file(offer, self.storage_path, proxy=proxy_arg)
                 logger.info(f"Search results downloaded: {filepath}")
 
                 text = extract_search_results(filepath)
@@ -531,9 +555,13 @@ class IRCBookBot:
         self._pending_download = None
         self._pending_download_since = None
 
+        # Capture current proxy for the DCC thread
+        current_proxy = proxy_manager.current_proxy if settings.proxy_enabled else None
+
         def _do_receive():
+            proxy_arg = (current_proxy.ip, current_proxy.port) if current_proxy else None
             try:
-                filepath = receive_dcc_file(offer, self.storage_path)
+                filepath = receive_dcc_file(offer, self.storage_path, proxy=proxy_arg)
                 logger.info(f"Book downloaded: {filepath} ({offer.filesize} bytes)")
 
                 self.download_results.put(DownloadComplete(

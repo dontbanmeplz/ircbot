@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import socks
+
 logger = logging.getLogger("ircbot.dcc")
 
 # Regex for DCC SEND: handles both quoted and unquoted filenames
@@ -82,7 +84,12 @@ class DCCTimeoutError(DCCTransferError):
     pass
 
 
-def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=None) -> Path:
+def receive_dcc_file(
+    offer: DCCSendOffer,
+    save_path: Path,
+    progress_callback=None,
+    proxy: Optional[tuple[str, int]] = None,
+) -> Path:
     """Download a file via DCC SEND.
     
     Opens a raw TCP connection to the sender and reads exactly `filesize` bytes.
@@ -92,11 +99,13 @@ def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=Non
       - Connect timeout (30s)
       - Per-read timeout (60s) 
       - Overall transfer timeout (300s for books, 60s for search results)
+      - Optional SOCKS5 proxy support
     
     Args:
         offer: Parsed DCC SEND offer
         save_path: Directory to save the file in
         progress_callback: Optional callable(bytes_received, total_bytes)
+        proxy: Optional (ip, port) tuple for SOCKS5 proxy
     
     Returns:
         Path to the saved file
@@ -119,17 +128,26 @@ def receive_dcc_file(offer: DCCSendOffer, save_path: Path, progress_callback=Non
     received = 0
     chunk_size = 8192
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Create socket - proxied or direct
+    if proxy:
+        sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.set_proxy(socks.SOCKS5, proxy[0], proxy[1])
+        logger.info(f"DCC connecting to {offer.ip}:{offer.port} via proxy {proxy[0]}:{proxy[1]}")
+    else:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        logger.info(f"DCC connecting to {offer.ip}:{offer.port} for {offer.filename}")
+
     sock.settimeout(DCC_CONNECT_TIMEOUT)
 
     try:
-        logger.info(f"DCC connecting to {offer.ip}:{offer.port} for {offer.filename}")
         try:
             sock.connect((offer.ip, offer.port))
         except socket.timeout:
             raise DCCTransferError(f"Connection timed out to {offer.ip}:{offer.port}")
         except ConnectionRefusedError:
             raise DCCTransferError(f"Connection refused by {offer.ip}:{offer.port}")
+        except socks.ProxyConnectionError as e:
+            raise DCCTransferError(f"Proxy connection failed for {offer.ip}:{offer.port}: {e}")
         except OSError as e:
             raise DCCTransferError(f"Connection failed to {offer.ip}:{offer.port}: {e}")
 

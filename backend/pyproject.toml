@@ -12,6 +12,7 @@ dependencies = [
     "pyjwt>=2.9",
     "python-multipart>=0.0.18",
     "pydantic-settings>=2.7",
+    "PySocks>=1.7.1",
 ]
 
 [build-system]
