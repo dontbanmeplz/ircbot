@@ -11,7 +11,15 @@ echo "=== IRC Book Bot - Server Setup ==="
 # 1. Install system deps
 echo "[1/7] Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip nodejs npm git > /dev/null
+apt-get install -y -qq python3 python3-venv python3-pip git curl > /dev/null
+
+# Install Node.js 22.x (Vite requires Node 20.19+)
+if ! command -v node &>/dev/null || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]; then
+    echo "  Installing Node.js 22.x..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+    apt-get install -y -qq nodejs > /dev/null
+fi
+echo "  Node.js $(node -v), npm $(npm -v)"
 
 # 2. Create service user
 echo "[2/7] Creating service user..."

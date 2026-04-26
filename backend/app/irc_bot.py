@@ -255,7 +255,7 @@ class IRCBookBot:
             logger.info(f"Using proxy {proxy} for IRC connection")
         else:
             # Direct mode - plain TCP
-            connect_factory = None
+            connect_factory = irc.connection.Factory()
 
         server = self._reactor.server()
         self._connection = server
