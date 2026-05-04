@@ -129,9 +129,14 @@ def receive_dcc_file(
     chunk_size = 8192
 
     # Create socket - proxied or direct
+    # proxy tuple: (ip, port, username_or_None, password_or_None)
     if proxy:
         sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.set_proxy(socks.SOCKS5, proxy[0], proxy[1])
+        sock.set_proxy(
+            socks.SOCKS5, proxy[0], proxy[1],
+            username=proxy[2] if len(proxy) > 2 else None,
+            password=proxy[3] if len(proxy) > 3 else None,
+        )
         logger.info(f"DCC connecting to {offer.ip}:{offer.port} via proxy {proxy[0]}:{proxy[1]}")
     else:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

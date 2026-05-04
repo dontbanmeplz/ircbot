@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     proxy_list_url: str = "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.json"
     proxy_refresh_minutes: int = 30
     proxy_manual: str = ""  # Comma-separated manual proxies: ip:port,ip:port
-    proxy_connect_timeout: int = 10  # seconds to test if a proxy is alive
+    proxy_username: str = ""  # SOCKS5 auth username (leave blank for no auth)
+    proxy_password: str = ""  # SOCKS5 auth password
+    proxy_connect_timeout: int = 7  # seconds to test if a proxy is alive
 
     # Storage
     storage_path: Path = Path(__file__).parent.parent / "storage"

@@ -1,7 +1,13 @@
 """SOCKS5 proxy manager for IRC and DCC connections.
 
-Fetches free proxy lists, validates them, rotates through working ones,
-and provides socket factories for both IRC and DCC connections.
+Fetches free proxy lists, validates them (including IRC ban detection),
+rotates through working ones, and provides socket factories.
+
+Key reliability features:
+  - Parallel proxy testing: tests 10 proxies at once via ThreadPoolExecutor
+  - IRC-level ban detection: reads initial server response to filter banned IPs
+  - Last-known-good caching: remembers working proxies and tries them first
+  - Failed proxy cooldown: banned/dead proxies are skipped for 10 minutes
 
 Uses PySocks (socks.socksocket) which is a drop-in socket.socket subclass,
 compatible with select().
@@ -13,7 +19,8 @@ import random
 import socket
 import time
 import urllib.request
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from typing import Optional
 
 import socks
@@ -27,8 +34,9 @@ logger = logging.getLogger("ircbot.proxy")
 class Proxy:
     ip: str
     port: int
-    last_failed: float = 0.0  # monotonic timestamp of last failure
+    last_failed: float = 0.0
     fail_count: int = 0
+    last_success: float = 0.0  # monotonic timestamp of last successful connection
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
@@ -46,7 +54,6 @@ _BAN_PATTERNS = [
     "denied",
     "access denied",
     "you are not welcome",
-    "disconnected",
 ]
 
 # Strings that indicate the server is processing us normally (not banned)
@@ -58,7 +65,10 @@ _OK_PATTERNS = [
     "welcome to",
     "*** checking ident",
 ]
+
 PROXY_FAIL_COOLDOWN = 600  # 10 minutes
+PARALLEL_TEST_WORKERS = 10  # test this many proxies at once
+BAN_CHECK_TIMEOUT = 3       # seconds to wait for IRC ban/ok response
 
 
 class ProxyManager:
@@ -68,6 +78,7 @@ class ProxyManager:
         self._proxies: list[Proxy] = []
         self._last_fetch: float = 0.0
         self._current_proxy: Optional[Proxy] = None
+        self._last_good: list[Proxy] = []  # recently-working proxies, tried first
 
     @property
     def current_proxy(self) -> Optional[Proxy]:
@@ -76,6 +87,15 @@ class ProxyManager:
     @property
     def proxy_count(self) -> int:
         return len(self._proxies)
+
+    def mark_current_good(self):
+        """Call when the current proxy successfully joined IRC. Caches it."""
+        if self._current_proxy:
+            self._current_proxy.last_success = time.monotonic()
+            if self._current_proxy not in self._last_good:
+                self._last_good.insert(0, self._current_proxy)
+                # Keep at most 5 cached good proxies
+                self._last_good = self._last_good[:5]
 
     def refresh_if_needed(self):
         """Fetch proxy list if stale or empty."""
@@ -151,7 +171,20 @@ class ProxyManager:
         """Mark a proxy as recently failed."""
         proxy.last_failed = time.monotonic()
         proxy.fail_count += 1
-        logger.debug(f"Proxy {proxy} marked failed (count={proxy.fail_count})")
+        # Remove from last-good cache if present
+        self._last_good = [p for p in self._last_good if p is not proxy]
+
+    def _configure_socket(self, proxy: Proxy) -> socks.socksocket:
+        """Create and configure a SOCKS5 socket with optional auth."""
+        sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.set_proxy(
+            socks.SOCKS5,
+            proxy.ip,
+            proxy.port,
+            username=settings.proxy_username or None,
+            password=settings.proxy_password or None,
+        )
+        return sock
 
     def _test_proxy(self, proxy: Proxy) -> bool:
         """Full IRC-level health check: connect via SOCKS5 and verify not banned.
@@ -163,17 +196,12 @@ class ProxyManager:
         """
         sock = None
         try:
-            sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.set_proxy(socks.SOCKS5, proxy.ip, proxy.port)
+            sock = self._configure_socket(proxy)
             sock.settimeout(settings.proxy_connect_timeout)
             sock.connect((settings.irc_server, settings.irc_port))
 
             # Read the first messages from the IRC server.
-            # The server sends NOTICE lines immediately on connect:
-            #   - "*** Looking up your hostname..." (good)
-            #   - "*** You're banned!" (bad)
-            # We read for up to 5 seconds or until we can determine status.
-            sock.settimeout(5)
+            sock.settimeout(BAN_CHECK_TIMEOUT)
             buf = b""
             try:
                 while len(buf) < 4096:
@@ -187,33 +215,29 @@ class ProxyManager:
                     # Check for ban
                     for pattern in _BAN_PATTERNS:
                         if pattern in text:
-                            logger.info(f"Proxy {proxy} is BANNED on IRC server")
+                            logger.info(f"Proxy {proxy} BANNED")
                             self._mark_failed(proxy)
                             return False
 
-                    # Check for normal response - server is accepting us
+                    # Check for normal response
                     for pattern in _OK_PATTERNS:
                         if pattern in text:
-                            logger.debug(f"Proxy {proxy} got normal IRC response")
                             return True
 
             except socket.timeout:
-                # Timeout reading without a ban notice = probably fine
-                # (server is slow but didn't reject us)
                 if buf:
                     text = buf.decode("utf-8", errors="replace").lower()
                     for pattern in _BAN_PATTERNS:
                         if pattern in text:
-                            logger.info(f"Proxy {proxy} is BANNED on IRC server")
+                            logger.info(f"Proxy {proxy} BANNED")
                             self._mark_failed(proxy)
                             return False
                 return True
 
-            # Got data but didn't match any pattern - assume OK
             return True
 
         except Exception as e:
-            logger.debug(f"Proxy {proxy} health check failed: {e}")
+            logger.debug(f"Proxy {proxy} failed: {e}")
             self._mark_failed(proxy)
             return False
         finally:
@@ -224,10 +248,12 @@ class ProxyManager:
                     pass
 
     def get_working_proxy(self) -> Optional[Proxy]:
-        """Find the next working proxy by iterating and health-checking.
+        """Find a working proxy using parallel testing.
+        
+        1. Try last-known-good proxies first (sequentially, they're fast)
+        2. Then test batches of proxies in parallel
         
         Returns None if no working proxy is found.
-        Tries up to 15 proxies before giving up.
         """
         self.refresh_if_needed()
 
@@ -235,6 +261,18 @@ class ProxyManager:
             logger.error("No proxies loaded")
             return None
 
+        # First: try last-known-good proxies (fast path)
+        for proxy in list(self._last_good):
+            if self._is_available(proxy):
+                logger.info(f"Testing cached good proxy {proxy}...")
+                if self._test_proxy(proxy):
+                    logger.info(f"Cached proxy {proxy} still works")
+                    self._current_proxy = proxy
+                    return proxy
+                else:
+                    logger.info(f"Cached proxy {proxy} no longer works")
+
+        # Second: parallel test from the full pool
         available = [p for p in self._proxies if self._is_available(p)]
         if not available:
             logger.warning("All proxies in cooldown, resetting")
@@ -243,16 +281,40 @@ class ProxyManager:
             available = self._proxies[:]
 
         random.shuffle(available)
-        max_attempts = min(30, len(available))
 
-        for proxy in available[:max_attempts]:
-            logger.info(f"Testing proxy {proxy}...")
-            if self._test_proxy(proxy):
-                logger.info(f"Proxy {proxy} is working")
-                self._current_proxy = proxy
-                return proxy
+        # Test in batches of PARALLEL_TEST_WORKERS
+        max_total = min(60, len(available))
+        tested = 0
 
-        logger.error(f"No working proxy found after {max_attempts} attempts")
+        while tested < max_total:
+            batch = available[tested:tested + PARALLEL_TEST_WORKERS]
+            if not batch:
+                break
+            tested += len(batch)
+
+            logger.info(f"Testing batch of {len(batch)} proxies ({tested}/{max_total})...")
+
+            with ThreadPoolExecutor(max_workers=PARALLEL_TEST_WORKERS) as executor:
+                futures = {
+                    executor.submit(self._test_proxy, proxy): proxy
+                    for proxy in batch
+                }
+
+                for future in as_completed(futures):
+                    proxy = futures[future]
+                    try:
+                        if future.result():
+                            # Found a working one - cancel the rest
+                            logger.info(f"Proxy {proxy} is working")
+                            self._current_proxy = proxy
+                            # Cancel remaining futures (best effort)
+                            for f in futures:
+                                f.cancel()
+                            return proxy
+                    except Exception:
+                        pass
+
+        logger.error(f"No working proxy found after testing {tested} proxies")
         return None
 
     def create_irc_connection(self, server: str, port: int) -> socket.socket:
@@ -269,8 +331,7 @@ class ProxyManager:
         if not proxy:
             raise RuntimeError("No proxy available for IRC connection")
 
-        sock = socks.socksocket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.set_proxy(socks.SOCKS5, proxy.ip, proxy.port)
+        sock = self._configure_socket(proxy)
         sock.settimeout(30)
 
         logger.info(f"Connecting to {server}:{port} via proxy {proxy}")

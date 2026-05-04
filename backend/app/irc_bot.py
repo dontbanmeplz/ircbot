@@ -49,6 +49,11 @@ PENDING_SEARCH_TIMEOUT = 120   # 2 minutes (searches can be slow)
 PENDING_DOWNLOAD_TIMEOUT = 180  # 3 minutes (download bots can have queues)
 
 
+class _BannedError(Exception):
+    """Raised when the IRC server bans us. Signals the reconnect loop to skip the delay."""
+    pass
+
+
 class JobType(Enum):
     SEARCH = "search"
     DOWNLOAD = "download"
@@ -205,19 +210,28 @@ class IRCBookBot:
     def _run(self):
         """Main bot loop - runs in background thread."""
         while self._running:
+            banned_this_cycle = False
             try:
                 self._connect_and_run()
+            except _BannedError:
+                # Got banned on this proxy - retry immediately with a new one
+                banned_this_cycle = True
+                self._connected = False
+                self._joined = False
             except Exception as e:
                 logger.error(f"IRC bot error: {e}", exc_info=True)
                 self._connected = False
                 self._joined = False
-                # Clear any pending ops so they don't block forever
                 self._clear_pending_search("IRC connection lost")
                 self._clear_pending_download("IRC connection lost")
 
             if self._running:
-                logger.info("Reconnecting in 10 seconds...")
-                time.sleep(10)
+                if banned_this_cycle:
+                    # Don't wait - immediately try a new proxy
+                    logger.info("Banned on that proxy, trying next immediately...")
+                else:
+                    logger.info("Reconnecting in 5 seconds...")
+                    time.sleep(5)
 
     def _connect_and_run(self):
         """Connect to IRC and run the event loop."""
@@ -353,6 +367,9 @@ class IRCBookBot:
         if event.target == self.channel:
             self._joined = True
             logger.info(f"Joined {self.channel}")
+            # Cache this proxy as known-good
+            if settings.proxy_enabled:
+                proxy_manager.mark_current_good()
 
     def _on_nick_in_use(self, connection, event):
         """Nickname is taken, pick a completely new human-looking nick."""
@@ -375,13 +392,20 @@ class IRCBookBot:
 
         lower = msg.lower()
 
-        # Check for ban notice - mark proxy as failed so we don't reuse it
+        # Check for ban notice - mark proxy as failed and raise to trigger immediate retry
         if "banned" in lower or "k-lined" in lower or "denied" in lower:
-            logger.warning(f"Proxy IP is banned on this IRC node: {msg}")
+            logger.warning(f"BANNED on this proxy: {msg}")
             if settings.proxy_enabled and proxy_manager.current_proxy:
                 proxy_manager._mark_failed(proxy_manager.current_proxy)
                 logger.info(f"Marked proxy {proxy_manager.current_proxy} as banned")
-            return
+            # Disconnect and signal the reconnect loop to skip the delay
+            self._connected = False
+            self._joined = False
+            try:
+                connection.disconnect("Banned")
+            except Exception:
+                pass
+            raise _BannedError(msg)
 
         # Check for search-related failure notices
         if self._pending_search:
@@ -503,7 +527,11 @@ class IRCBookBot:
         current_proxy = proxy_manager.current_proxy if settings.proxy_enabled else None
 
         def _do_receive():
-            proxy_arg = (current_proxy.ip, current_proxy.port) if current_proxy else None
+            proxy_arg = (
+                current_proxy.ip, current_proxy.port,
+                settings.proxy_username or None,
+                settings.proxy_password or None,
+            ) if current_proxy else None
             try:
                 filepath = receive_dcc_file(offer, self.storage_path, proxy=proxy_arg)
                 logger.info(f"Search results downloaded: {filepath}")
@@ -559,7 +587,11 @@ class IRCBookBot:
         current_proxy = proxy_manager.current_proxy if settings.proxy_enabled else None
 
         def _do_receive():
-            proxy_arg = (current_proxy.ip, current_proxy.port) if current_proxy else None
+            proxy_arg = (
+                current_proxy.ip, current_proxy.port,
+                settings.proxy_username or None,
+                settings.proxy_password or None,
+            ) if current_proxy else None
             try:
                 filepath = receive_dcc_file(offer, self.storage_path, proxy=proxy_arg)
                 logger.info(f"Book downloaded: {filepath} ({offer.filesize} bytes)")
